@@ -134,7 +134,7 @@ hetmodel <- lm(mean_value~did+did:Station+yr_qtr+Station,data=treatment_control_
 eventmodel <- lm(mean_value~treatment*yr_qtr+Station,data=treatment_control_df)
 ```
 
-Motivation
+**Motivation**
 
 The DiD setup in the main ULEZ paper relies explicitly on the parallel trends assumption for constructing valid counterfactuals and estimating causal effects in the presence of selection bias. As was noted in the specification testing and event study section there's evidence for the assumption holding mostly for PM10 but failing in the strong form for NO2. Specifically the visual and modified restriction test evidence points to some form of anticipation effect and not long term drift. The goal of this exercise is to use relative likelihoods and evidence ratios to triangulate how exactly was the assumption violated by proposing a set of models with different forms of anticipation up to fully non parallel trends.
 
@@ -142,9 +142,9 @@ The DiD setup in the main ULEZ paper relies explicitly on the parallel trends as
 
 ![](PM10HC3.png){width="344"}
 
-Methodology
+**Methodology**
 
-Estimators
+**Estimators**
 
 The original paper uses HC3 sandwich variance covarience estimators for specification testing, in order to maintain consistency and same evidence weights we are going to use them as our robust variance estimators as well(note that this is a deviation from a pure likelihood approach in TIC and MBIC). We'd incorporate these adjustments via generalized AIC and BIC alternatives. Takeuchi and his criterion is essentially a generalisation of AIC under s model misspecification, instead of asssuming a well specified model under which the bias adjustment to relative likelihood simplifies to 2\*number of free parameters.In line with Takeuchis approach we allow the bread and meat of vcov matrix to be unequal and thus use the full trace penalty tr(inv(H)%*%J) where J is the empirical score matrix. Recall that the HC3 vcov estimator is essentially inv(H)%%Omega(HC3)%%inv(H) or B%%M%*%B. Than we can derive a Takeuchi style penalty by multiplying the left side with the inverse of the inverse of the Hessian leading to
 
@@ -204,9 +204,9 @@ mbic_glm <- function(model) {
 
 When leverage of residuals is low and evenly distributed corresponding to low misspecification the two penalties are very close to AIC and BIC respectively. The two estimators however are robust against heteroskadasticity and retain ability to consistently weight evidence between models with differently misspecified variences.
 
-Using Information Criteria for (Relative) Likelihoodist inference
+**Using Information Criteria for (Relative) Likelihoods inference**
 
-TIC
+**TIC(GIC framework)**
 
 Takeuchis criterion as the generalisation of AIC is the bias adjusted metric for relative information loss between a set of models that occurs when we try and approximate a complex Data Generating process with simplified models estimated from sample models via maximum likelihood. Given that maximised log likelihoods of a set of models is a measure of how probable(or close) data is given a model and penalty term corrects the upward bias of sample estimators its possible to use differences in TICs between two models to estimate Relative Likelihoods that one model is the better approximation to DGP in the following way
 
@@ -218,7 +218,7 @@ TakeuchiAkaikeWeight(Mi)= RLi(Mi)/sum over all M (RLi).
 
 This approach allows one to obtain a full probability distribution of evidence for being the best predictive/approximating model over the entire set of candidate models. The approach is essentially a Relative(to dimension given by parameters) Likelihood ratio approach to inference. Notably the model selected is the best predictive(not necessarily correct) model as we explicitly assume that the true model is too complex to be in the candidate set.This means that with large sample sizes the criterion is more than happy to pick more complex models as long as the signal to noise trade off is favorable and is thus not an asymptotically consistent selection method when the true model is suspected to be in the candidate set. Note also that we are using a sandwich based approximation instead of the true TIC to be in line with the original paper
 
-MBIC
+**MBIC(GBIC framework)**
 
 The log(n) adjustment can be added to the TIC to put it in line with the work of Schwarz on approximate Bayesian model selection.
 
@@ -242,7 +242,7 @@ For multimodel inference this means restricting the policy effect coefficients t
 
 Finally, the value of this exercise lies not just in being able to transparently evaluate evidence for effect identification, but also in doing a probabilistic post mortem of sorts on the exact direction and size of bias in our effect estimates for both PM10 and NO2 given that the original paper used the models assuming clean parallel trends. Furthermore, we can also explore how driver behavior adjusted dynamically long before policy implementation.
 
-Estimation
+**Estimation**
 
 We estimate all the models in the candidate set and calculate their TIC scores:
 
@@ -566,21 +566,33 @@ We know rerun the analysis for pm10 to get results for pm10 side of the analysis
 
     </div>
 
-NO2
+**NO2**
 
 ```{r}
 gt(resultsno2mbic)
 gt(resultsno2tic)
 ```
 
-PM10
+The approximate Schwarz posterior weights predominantly favor the anticipation models with 2 or 1 quarter of anticipation being about 0.98/0.02=49 times more likely than the clean DID model. At the same time the higher order anticipation and the full event study models have relatively litlle support and are weighted near zero. Under the assumption that the true model in the set has a well specified mean we have that the 3-6 months of anticipation was the most likely driver and composition effect response to the ULEZ announcement, there's low to no sample evidence support for non parallel trends though.
+
+As a robustness check we also drop the true model assumption and consider Takeuchi results as well. We are know looking for the lowest information loss/best predictions on unseen data(relative KL divergence) model. This is justified since if seasonal interactions or non linearity are ommited the model for the mean is biased and the true model isn't in the candidate set, TIC is thus more lenient towards including predictors. The weights are almost evenly split between the clean DiD, 1 and 2 quarter models - they have very similar probabilities of being the best approximating model in the set. Collectively the anticipation models are 1.8 times more likely to be the best approximation than the clean DiD. Individually however the relative information loss between the 3 is indistinguishible. If we don't have the approximately true DGP assumption to allow us to use MBIC, and look for best predicitive approximation instead we have modest evidence for some form of anticipation effect but can't really decisively choose any particular specification.Still the higher order anticipations and unrestricted model have very low in sample support.
+
+**PM10**
 
 ```{r}
 gt(resultspm10mbic)
 gt(resultspm10tic)
 ```
 
-Bonus:Bayesian Model Averages of the Anticipation Adjusted Effects to put a number on attentuation bias
+The approximate posterior weights are spread out in such a way that the clean DiD model is 2.68 times more likely than the anticipation models. The noise in PM10 data is likely such that the models cannot pick up any meaningful divergence between the treatment and control under the approximately true DGP assumption. This alligns with the conclusions of the original paper - the volume effect which would have affected PM10 more through the decrease in the total number of cars on the road was relatively modest, with people acqurining cleaner vehicles but largely leaving their driving habits unchanged.
+
+Dropping the true DGP assumption and lookign for the best approximating model instead sheds light on uncertainty in PM10 time series. Although some form of anticipation is 5 times more likely than clean DiD to be the better approximation,the evidence doesn't favor any individual model as the best approximating one. Like with NO2 and even more so we arguably don't have enough evidence to pinpoint any particular anticipation pattern or lack thereof given the sample and its noise.
+
+**Takeuchi and Akaike vs Schwarz and Bayes and GIC vs GBIC**
+
+Ultimately whether one should choose the relative information loss or posterior probability interpretation of the analysis outcome boils down to whether one thinks the mean is well specified(additive and linear) or misspespecified (which is most likely). I tend to err on the side of caution and use both and interpret both jointly even if they come from two competing philosophies. Still the relative evidence approach does help hint towards most plausible anticipation patterns in NO2 which are economically meaningful if DGP assumption holds and at least provides us with the decent enough representation of inherent in sample uncertainty if it doesn't.
+
+**Bonus:Bayesian Model Averages of the Anticipation Adjusted Effects to put a number on attentuation bias**
 
 ```{r echo=FALSE}
 library(gt)
@@ -614,7 +626,7 @@ pm10_att %>%
   fmt_number(columns = ATT, decimals = 4)
 ```
 
-When there are anticipation effects but no cumulative long term drift the DiD coefficient has the correct direction but has incorrect effect size as the counter factual is calculated at a lower baseline than when the policy actually started taking effect. As a nice side effect of having a full probability distribution over all our theories we can try and adjust for attenuation bias by calculating a weighted average of all model estimates given their probabilities note that since the probability weight on the unrestricted model is zero it has no effect on the adjustment.
+When there are anticipation effects but no cumulative long term drift the DiD coefficient has the correct direction but has incorrect effect size as the counter factual is calculated at a lower baseline than when the policy actually started taking effect. As a nice side effect of having full probability distributions over all our theories we can try and adjust for attenuation bias by calculating a weighted average of all model estimates given their probabilities note that since the probability weight on the unrestricted model is zero it has no effect on the adjustment.
 
 ```{r echo=TRUE}
 gt(data.frame(NO2BAME=sum(resultsno2mbic$`P(M|Data)`*no2_att$ATT),
@@ -623,4 +635,4 @@ PM10BAME=sum(resultspm10mbic$`P(M|Data)`*pm10_att$ATT),
 PM10BAMEtic=sum(resultspm10tic$Weight*pm10_att$ATT)))
 ```
 
-Its notable that the weighted coefficients for NO2 and Pm10 are larger than the anticipation affected ones by about 0.574(5.9 percent loss to attenuation) and 0.053(4.61 percent loss to attenuation) respectively, this gap represents the expected attenuation bias for our model set(note that getting SE for BMAs is notoriously difficult so these are just descriptive point estimates).Relaxing the assumption that the true DGP is in candidate set and using takeuchi weights increases the expected bias to 5.3 and 19 percent of the original estimates respectively. The original choice to stick with original policy timings therefore was more or less robust to anticipation bias for both pollutants for a given sample as even in the most pessimistic outcome the uncertainty doesn't seem to overturn the original conclusions.
+Its notable that the weighted coefficients for NO2 and Pm10 are larger than the anticipation affected ones by about 0.574(5.9 percent loss to attenuation) and 0.053(4.61 percent loss to attenuation) respectively, this gap represents the expected attenuation bias for our model set(note that getting SE for BMAs is notoriously difficult so these are just descriptive point estimates).Relaxing the assumption that the true DGP is in candidate set and using takeuchi weights increases the expected bias to 5.3 and 19 percent of the original estimates respectively. The original choice to stick with original policy timings therefore was more or less robust to anticipation bias for both pollutants for a given sample as even in the most pessimistic outcome the uncertainty doesn't seem to overturn the original specification.
