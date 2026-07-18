@@ -2,7 +2,7 @@
 ---
 ---
 
-\-
+\-Sviatoslav Cherniak
 
 title: "An information theoretic workthrough of the Parallel trends assumption"
 
@@ -10,7 +10,7 @@ output: html_document
 
 date: "2026-07-17"
 
----
+------------------------------------------------------------------------
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -30,7 +30,6 @@ library(modelsummary)
 library(gt)
 #Data Cleaning#
 Rawdata <- read_excel("~/Rawdata.xlsx", sheet = "Sheet1")
-View(Rawdata)
 no2quarterly <- Rawdata %>%
   # Returns numeric year.quarter (e.g., 2024.1)
   mutate(yr_qtr = quarter(date, with_year = TRUE)) %>% 
@@ -226,11 +225,11 @@ MBIChc3=-2\*logLik(M)+ log(n)\*tr(*Omega(HC3)%%inv(H))*
 
 Under the assumption that the true model is in the candidate state and that all models are equally likely prior to observing any data(unit prior), the relative likelihood derived from MBIC is a large sample approximation to the Bayes Factor of two models:
 
-RelativeLikelihood(M2 to Mmin(MBIC))= exp(-0.5(changembic(M2 to Mmin(MBIC))))=BF21
+RelativeLikelihood(M2 to Mmin(MBIC))= exp(-0.5(changembic(M2 to Mmin(MBIC))))=BF2toMminmbic
 
 Given that the Bayes factors is a ratio of posterior probabilities after observing data for same priors, its possible to calculate the posterior probability of a given model given data also known as a Schwarz Weight as:
 
-SchwarzWeight=P(Mi\|Data)=BFmi/mlowestbic/sum over all M(BFmi/mlowestbic).
+SchwarzWeight=P(Mi\|Data)=BFmi/sum over all M(BFmi/mlowestbic).
 
 Therefore under the assumption that the true model is in the candidate set and unit priors one can reasonably use Schwarzs approximation with MBIC to make probability statements about plausibility of different models given data, its the most direct substitute for NHST for our purposes. Still these are quasi-posteriors and should be interpreted as plausibility weights at best
 
@@ -246,8 +245,74 @@ Finally, the value of this exercise lies not just in being able to transparently
 
 We estimate all the models in the candidate set and calculate their TIC scores:
 
-```{r include=FALSE}
-# 1. Define your quarter groups explicitly
+```{r echo=TRUE}
+no2quarterly <- FullDataset %>%
+  mutate(yr_qtr = quarter(date, with_year = TRUE)) %>% 
+  group_by(yr_qtr, Station) %>%
+  summarise(mean_value = mean(no2, na.rm = TRUE), .groups = "drop") %>%
+  arrange(Station, yr_qtr) %>%
+  group_by(Station) %>%
+  mutate(
+    pct_changepol = (mean_value - lag(mean_value)) / lag(mean_value) * 100
+  ) %>%
+  ungroup()
+#Learnig how  to use regex was a bit of a pain#
+no2quarterly <- no2quarterly %>%
+  mutate(City = case_when(
+    str_detect(Station, regex("Birmingham", ignore_case = TRUE)) ~ "Birmingham",
+    str_detect(Station, regex("Glasgow", ignore_case = TRUE))    ~ "Glasgow",
+    str_detect(Station, regex("Leeds", ignore_case = TRUE))      ~ "Leeds",
+    str_detect(Station, regex("London", ignore_case = TRUE))     ~ "London",
+    str_detect(Station, regex("Manchester", ignore_case = TRUE)) ~ "Manchester",
+    str_detect(Station, regex("Newcastle", ignore_case = TRUE))  ~ "Newcastle",
+    str_detect(Station, regex("Sheffield", ignore_case = TRUE))  ~ "Sheffield",
+    str_detect(Station, regex("Camden", ignore_case = TRUE))     ~ "London",
+    str_detect(Station, regex("Salford", ignore_case = TRUE))    ~ "Salford",
+    str_detect(Station, regex("Sunderland", ignore_case = TRUE)) ~ "Sunderland",
+    str_detect(Station, regex("Westminster", ignore_case = TRUE)) ~ "London",
+    TRUE ~ "Other" # Catch-all for anything missed
+  ))
+#Defining groups and Intervention Period#
+intervention <- c(2019.2,2019.3,2019.4,2020.1,2020.2,2020.3,2020.4,2021.1,2021.2,2021.3,2021.4,2022.1,2022.2,2022.3,2022.4)
+treatment <- c(
+  "camden-- euston road", 
+  "london-bloomsbury", 
+  "LondonC", 
+  "LondonMR", 
+  "LondonW" 
+)
+
+control <- c(
+  "glasgow-anderston",
+  "glasgow-byres road",
+  "glasgow-high street",
+  "glasgow-townhead",
+  "GlasgowK",
+  "manchester-oxford road",
+  "ManchesterPic",
+  "NewcastleC",
+  "salford-eccles",
+  "salford-m60"
+)
+panel_dfind <- no2quarterly %>%
+  mutate(
+    intervention = ifelse(yr_qtr %in% intervention, 1,0),
+    control = ifelse(Station %in% control, 1, 0),
+    treatment= ifelse(Station %in% treatment,1,0),
+    did= intervention*treatment)
+treatment_control_df <- panel_dfind %>%
+  filter(treatment + control == 1,yr_qtr < 2023.1 & yr_qtr > 2015.1)
+#Estimating Models#
+treatment_control_df$Station <- as.factor(treatment_control_df$Station)
+treatment_control_df$yr_qtr <- as.factor(treatment_control_df$yr_qtr)
+treatment_control_df$City <- as.factor(treatment_control_df$City)
+treatment_control_df$did <-as.factor(treatment_control_df$did)
+reducedmodel <- lm(mean_value~did+yr_qtr+Station,data=treatment_control_df)
+treatment_control_df$ulez_id <- ifelse(treatment_control_df$did == 1, 
+                                       as.character(treatment_control_df$Station), 
+                                       "Control")
+hetmodel <- lm(mean_value~did+did:Station+yr_qtr+Station,data=treatment_control_df)
+eventmodel <- lm(mean_value~treatment*yr_qtr+Station,data=treatment_control_df)
 post_quarters_null <- c(
   "2019.2", "2019.3", "2019.4", 
   "2020.1", "2020.2", "2020.3", "2020.4", 
@@ -264,74 +329,83 @@ post_quarters_ant4<- c("2018.2", post_quarters_ant3)
 # but groups all other quarters into a single "Pre-Treatment/Baseline" reference category (0 effect).
 prepared_df <- treatment_control_df %>%
   mutate(
-    # Null Model: Interactions only from 2019.2 onwards
-    yr_qtr_null = ifelse(yr_qtr %in% post_quarters_null, yr_qtr, "Pre-Treatment"),
+    # Convert factor to character inline to preserve text values
+    yr_qtr_char = as.character(yr_qtr),
     
-    # Anticipation 1: Interactions from 2019.1 onwards
-    yr_qtr_ant1 = ifelse(yr_qtr %in% post_quarters_ant1, yr_qtr, "Pre-Treatment"),
+    # 1. Corrected DiD term using multiplication
+    did = intervention * treatment,
     
-    # Anticipation 2: Interactions from 2018.4 onwards
-    yr_qtr_ant2 = ifelse(yr_qtr %in% post_quarters_ant2, yr_qtr, "Pre-Treatment"),
-    yr_qtr_ant3= ifelse(yr_qtr %in% post_quarters_ant3,yr_qtr, "Pre-Treatment"),
-    yr_qtr_ant4= ifelse(yr_qtr %in% post_quarters_ant4,yr_qtr, "Pre-Treatment")
-  )
+    # 2. Preserved quarter strings in the interaction terms
+    yr_qtr_null = if_else(yr_qtr_char %in% post_quarters_null, yr_qtr_char, "Pre-Treatment"),
+    yr_qtr_ant1 = if_else(yr_qtr_char %in% c("2019.1"), yr_qtr_char, "Pre-Treatment"),
+    yr_qtr_ant2 = if_else(yr_qtr_char %in% c("2018.4", "2019.1"), yr_qtr_char, "Pre-Treatment"),
+    yr_qtr_ant3 = if_else(yr_qtr_char %in% c("2018.3", "2018.4", "2019.1"), yr_qtr_char, "Pre-Treatment"),
+    yr_qtr_ant4 = if_else(yr_qtr_char %in% c("2018.2", "2018.3", "2018.4", "2019.1"), yr_qtr_char, "Pre-Treatment"),
+    yr_qtr_unrestrict=ifelse(!yr_qtr %in% post_quarters_null,yr_qtr_char, "Pre-Treatment"))
+  
 
 # 3. Explicitly estimate the restricted models
 # We interact 'treatment' ONLY with our newly capped quarter variables.
 # Note: Use treatment : yr_qtr_xxx to get the interaction effects without changing the main effects.
 
 # Baseline / Unrestricted Model
-eventmodel <- lm(mean_value ~ treatment * yr_qtr + Station, data = prepared_df)
-
+eventmodelunrestrict <- lm(mean_value ~ did+yr_qtr_unrestrict:treatment+ Station+yr_qtr, data = prepared_df)
+unrestrictvcov <- vcovHC(eventmodelunrestrict,type = "HC3")
 # Restricted Model 1: Null (No Anticipation)
-eventmodelnull <- lm(mean_value ~ treatment : yr_qtr_null + Station + yr_qtr, data = prepared_df)
-
+eventmodelnull <- lm(mean_value ~  did+Station + yr_qtr, data = prepared_df)
+nullvcov <- vcovHC(eventmodelnull,type = "HC3")
 # Restricted Model 2: 1-Quarter Anticipation
-eventmodelant1 <- lm(mean_value ~ treatment : yr_qtr_ant1 + Station + yr_qtr, data = prepared_df)
-
+eventmodelant1 <- lm(mean_value ~ did+treatment : yr_qtr_ant1 + Station + yr_qtr, data = prepared_df)
+ant1vcov <- vcovHC(eventmodelant1,type = "HC3")
 # Restricted Model 3: 2-Quarter Anticipation
-eventmodelant2 <- lm(mean_value ~ treatment : yr_qtr_ant2 + Station + yr_qtr, data = prepared_df)
-eventmodelant3 <-  lm(mean_value ~ treatment : yr_qtr_ant3 + Station + yr_qtr, data = prepared_df)
-eventmodelant4 <-  lm(mean_value ~ treatment : yr_qtr_ant4 + Station + yr_qtr, data = prepared_df)
-tabletic <- t(tibble("unrestrictedtrends"=tic_glm(eventmodel),
-"1 year anticipation"=tic_glm(eventmodelant4),
-"3 quarters anticipation"=tic_glm(eventmodelant3),
-"2 quarters anticipation"=tic_glm(eventmodelant2),
-"1 quarter anticipation"=tic_glm(eventmodelant1),
-" no pre treatment effects"=tic_glm(eventmodelnull)))
+eventmodelant2 <- lm(mean_value ~ did+treatment : yr_qtr_ant2 + Station + yr_qtr, data = prepared_df)
+ant2vcov <- vcovHC(eventmodelant2,type = "HC3")
+eventmodelant3 <-  lm(mean_value ~ did+treatment : yr_qtr_ant3 +Station + yr_qtr, data = prepared_df)
+ant3vcov <- vcovHC(eventmodelant3,type = "HC3")
+eventmodelant4 <-  lm(mean_value ~ did+treatment : yr_qtr_ant4 + Station + yr_qtr, data = prepared_df)
+ant4vcov <- vcovHC(eventmodelant4,type = "HC3")
 model_coef_list <- list(
-       unrestricted = coef(eventmodel),
-       ant4         = coef(eventmodelant4),
-       ant3         = coef(eventmodelant3),
-       ant2         = coef(eventmodelant2),
-       ant1         = coef(eventmodelant1),
-       null         = coef(eventmodelnull))
-effect_summary_tableno2 <- map_df(model_coef_list, function(coeffs) {
-    # 1. Filter coefficients starting with "treatment:"
-    effect_vals <- coeffs[grepl("^treatment:", names(coeffs))]
-    
-    # 2. Calculate the mean (ignoring the NAs for reference groups)
-    mean_val <- mean(effect_vals, na.rm = TRUE)
-    
-    # 3. Return as a row
-    return(data.frame(Mean_Effect = mean_val))
-}, .id = "Model")
-
-# Display the table using the gt package
-effect_summary_tableno2 %>%
-    gt() %>%
-    tab_header(
-        title = "Mean Treatment Effects by Model",
-        subtitle = "Calculated across interaction coefficients (excluding reference groups)"
-    ) %>%
-    cols_align(align = "center") %>%
-    fmt_number(columns = Mean_Effect, decimals = 3)
+  unrestricted = coef(eventmodelunrestrict),
+  ant4         = coef(eventmodelant4),
+  ant3         = coef(eventmodelant3),
+  ant2         = coef(eventmodelant2),
+  ant1         = coef(eventmodelant1),
+  null         = coef(eventmodelnull)
+)
+ vcov_list <- list(
+       unrestricted = unrestrictvcov,
+       ant4         = ant4vcov,
+       ant3         = ant3vcov,
+       ant2         = ant2vcov,
+       ant1         = ant1vcov,
+       null         = nullvcov)
+ 
+  
+effect_summary_tableno2 <- names(model_coef_list) %>%
+    map_df(function(model_name) {
+             mod  <- model_coef_list[[model_name]]
+             vcov <- vcov_list[[model_name]]
+             
+               # Extract coefficient (returns NA if dropped/collinear)
+               did_coef <- mod["did"]
+               
+                # Extract variance safely from the robust vcov matrix
+                 did_var <- if ("did" %in% colnames(vcov)) vcov["did", "did"] else NA
+                 
+                   # Calculate Standard Error for standard reporting completeness
+                   did_se <- sqrt(did_var)
+                   
+                   tibble(
+                           Model        = model_name,
+                           DiD_Estimate = did_coef,
+                           Robust_Var   = did_var
+                   )})
 ```
 
 We also calculate their MBIC scores:
 
 ```{r}
-tablembic <- t(tibble("unrestrictedtrends"=mbic_glm(eventmodel),
+tablembic <- t(tibble("unrestrictedtrends"=mbic_glm(eventmodelunrestrict),
                      "1 year anticipation"=mbic_glm(eventmodelant4),
                      "3 quarters anticipation"=mbic_glm(eventmodelant3),
                      "2 quarters anticipation"=mbic_glm(eventmodelant2),
@@ -343,6 +417,12 @@ MBICscore <- c(as.numeric(t(tablembic)))
 We can know use the TIC scores to derive and summarize their Relative Likelihoods and Takeuchi weights for a case in which we don't assume that the model is in the candidate set:
 
 ```{r}
+tabletic <- t(tibble("unrestrictedtrends"=tic_glm(eventmodelunrestrict),
+                     "1 year anticipation"=tic_glm(eventmodelant4),
+                     "3 quarters anticipation"=tic_glm(eventmodelant3),
+                     "2 quarters anticipation"=tic_glm(eventmodelant2),
+                     "1 quarter anticipation"=tic_glm(eventmodelant1),
+                     " no pre treatment effects"=tic_glm(eventmodelnull)))
 TICscore <- c(as.numeric(t(tabletic)))
 Model<- c("unrestrictedtrends","1 year anticipation","3 quarters anticipation","2 quarters anticipation","1 quarter anticipation"," no pre treatment effects")
 TICch <- TICscore - min(TICscore)
@@ -449,7 +529,6 @@ We know rerun the analysis for pm10 to get results for pm10 side of the analysis
                                                    "Control")
             hetmodel <- lm(mean_value~did+did:Station+yr_qtr+Station,data=treatment_control_df)
             eventmodel <- lm(mean_value~treatment*yr_qtr+Station,data=treatment_control_df)
-            # 1. Define your quarter groups explicitly
             post_quarters_null <- c(
               "2019.2", "2019.3", "2019.4", 
               "2020.1", "2020.2", "2020.3", "2020.4", 
@@ -466,70 +545,84 @@ We know rerun the analysis for pm10 to get results for pm10 side of the analysis
             # but groups all other quarters into a single "Pre-Treatment/Baseline" reference category (0 effect).
             prepared_df <- treatment_control_df %>%
               mutate(
-                # Null Model: Interactions only from 2019.2 onwards
-                yr_qtr_null = ifelse(yr_qtr %in% post_quarters_null, yr_qtr, "Pre-Treatment"),
+                # Convert factor to character inline to preserve text values
+                yr_qtr_char = as.character(yr_qtr),
                 
-                # Anticipation 1: Interactions from 2019.1 onwards
-                yr_qtr_ant1 = ifelse(yr_qtr %in% post_quarters_ant1, yr_qtr, "Pre-Treatment"),
+                # 1. Corrected DiD term using multiplication
+                did = intervention * treatment,
                 
-                # Anticipation 2: Interactions from 2018.4 onwards
-                yr_qtr_ant2 = ifelse(yr_qtr %in% post_quarters_ant2, yr_qtr, "Pre-Treatment"),
-                yr_qtr_ant3= ifelse(yr_qtr %in% post_quarters_ant3,yr_qtr, "Pre-Treatment"),
-                yr_qtr_ant4= ifelse(yr_qtr %in% post_quarters_ant4,yr_qtr, "Pre-Treatment")
-              )
+                # 2. Preserved quarter strings in the interaction terms
+                yr_qtr_null = if_else(yr_qtr_char %in% post_quarters_null, yr_qtr_char, "Pre-Treatment"),
+                yr_qtr_ant1 = if_else(yr_qtr_char %in% c("2019.1"), yr_qtr_char, "Pre-Treatment"),
+                yr_qtr_ant2 = if_else(yr_qtr_char %in% c("2018.4", "2019.1"), yr_qtr_char, "Pre-Treatment"),
+                yr_qtr_ant3 = if_else(yr_qtr_char %in% c("2018.3", "2018.4", "2019.1"), yr_qtr_char, "Pre-Treatment"),
+                yr_qtr_ant4 = if_else(yr_qtr_char %in% c("2018.2", "2018.3", "2018.4", "2019.1"), yr_qtr_char, "Pre-Treatment"),
+                yr_qtr_unrestrict=ifelse(!yr_qtr %in% post_quarters_null,yr_qtr_char, "Pre-Treatment"))
+              
 
             # 3. Explicitly estimate the restricted models
             # We interact 'treatment' ONLY with our newly capped quarter variables.
             # Note: Use treatment : yr_qtr_xxx to get the interaction effects without changing the main effects.
 
             # Baseline / Unrestricted Model
-            eventmodel <- lm(mean_value ~ treatment * yr_qtr + Station, data = prepared_df)
-
+            eventmodelunrestrict <- lm(mean_value ~ did+yr_qtr_unrestrict:treatment+ Station+yr_qtr, data = prepared_df)
+            unrestrictvcov <- vcovHC(eventmodelunrestrict,type = "HC3")
             # Restricted Model 1: Null (No Anticipation)
-            eventmodelnull <- lm(mean_value ~ treatment : yr_qtr_null + Station + yr_qtr, data = prepared_df)
-
+            eventmodelnull <- lm(mean_value ~  did+Station + yr_qtr, data = prepared_df)
+            nullvcov <- vcovHC(eventmodelnull,type = "HC3")
             # Restricted Model 2: 1-Quarter Anticipation
-            eventmodelant1 <- lm(mean_value ~ treatment : yr_qtr_ant1 + Station + yr_qtr, data = prepared_df)
-
+            eventmodelant1 <- lm(mean_value ~ did+treatment : yr_qtr_ant1 + Station + yr_qtr, data = prepared_df)
+            ant1vcov <- vcovHC(eventmodelant1,type = "HC3")
             # Restricted Model 3: 2-Quarter Anticipation
-            eventmodelant2 <- lm(mean_value ~ treatment : yr_qtr_ant2 + Station + yr_qtr, data = prepared_df)
-            eventmodelant3 <-  lm(mean_value ~ treatment : yr_qtr_ant3 + Station + yr_qtr, data = prepared_df)
-            eventmodelant4 <-  lm(mean_value ~ treatment : yr_qtr_ant4 + Station + yr_qtr, data = prepared_df)
-            tabletic <- t(tibble("unrestrictedtrends"=tic_glm(eventmodel),
+            eventmodelant2 <- lm(mean_value ~ did+treatment : yr_qtr_ant2 + Station + yr_qtr, data = prepared_df)
+            ant2vcov <- vcovHC(eventmodelant2,type = "HC3")
+            eventmodelant3 <-  lm(mean_value ~ did+treatment : yr_qtr_ant3 +Station + yr_qtr, data = prepared_df)
+            ant3vcov <- vcovHC(eventmodelant3,type = "HC3")
+            eventmodelant4 <-  lm(mean_value ~ did+treatment : yr_qtr_ant4 + Station + yr_qtr, data = prepared_df)
+            ant4vcov <- vcovHC(eventmodelant4,type = "HC3")
+            model_coef_list <- list(
+              unrestricted = coef(eventmodelunrestrict),
+              ant4         = coef(eventmodelant4),
+              ant3         = coef(eventmodelant3),
+              ant2         = coef(eventmodelant2),
+              ant1         = coef(eventmodelant1),
+              null         = coef(eventmodelnull)
+            )
+             vcov_list <- list(
+                   unrestricted = unrestrictvcov,
+                   ant4         = ant4vcov,
+                   ant3         = ant3vcov,
+                   ant2         = ant2vcov,
+                   ant1         = ant1vcov,
+                   null         = nullvcov)
+             
+              
+            effect_summary_tablepm10 <- names(model_coef_list) %>%
+                map_df(function(model_name) {
+                         mod  <- model_coef_list[[model_name]]
+                         vcov <- vcov_list[[model_name]]
+                         
+                           # Extract coefficient (returns NA if dropped/collinear)
+                           did_coef <- mod["did"]
+                           
+                            # Extract variance safely from the robust vcov matrix
+                             did_var <- if ("did" %in% colnames(vcov)) vcov["did", "did"] else NA
+                             
+                               # Calculate Standard Error for standard reporting completeness
+                               did_se <- sqrt(did_var)
+                               
+                               tibble(
+                                       Model        = model_name,
+                                       DiD_Estimate = did_coef,
+                                       Robust_Var   = did_var
+                               )})
+            tabletic <- t(tibble("unrestrictedtrends"=tic_glm(eventmodelunrestrict),
             "1 year anticipation"=tic_glm(eventmodelant4),
             "3 quarters anticipation"=tic_glm(eventmodelant3),
             "2 quarters anticipation"=tic_glm(eventmodelant2),
             "1 quarter anticipation"=tic_glm(eventmodelant1),
             " no pre treatment effects"=tic_glm(eventmodelnull)))
-            model_coef_list <- list(
-                   unrestricted = coef(eventmodel),
-                   ant4         = coef(eventmodelant4),
-                   ant3         = coef(eventmodelant3),
-                   ant2         = coef(eventmodelant2),
-                   ant1         = coef(eventmodelant1),
-                   null         = coef(eventmodelnull))
-            model_coef_list
-            effect_summary_tablepm10 <- map_df(model_coef_list, function(coeffs) {
-                # 1. Filter coefficients starting with "treatment:"
-                effect_vals <- coeffs[grepl("^treatment:", names(coeffs))]
-                
-                # 2. Calculate the mean (ignoring the NAs for reference groups)
-                mean_val <- mean(effect_vals, na.rm = TRUE)
-                
-                # 3. Return as a row
-                return(data.frame(Mean_Effect = mean_val))
-            }, .id = "Model")
-
-            # Display the table using the gt package
-            effect_summary_tablepm10 %>%
-                gt() %>%
-                tab_header(
-                    title = "Mean Treatment Effects by Model",
-                    subtitle = "Calculated across interaction coefficients (excluding reference groups)"
-                ) %>%
-                cols_align(align = "center") %>%
-                fmt_number(columns = Mean_Effect, decimals = 3)
-            tablembic <- t(tibble("unrestrictedtrends"=mbic_glm(eventmodel),
+            tablembic <- t(tibble("unrestrictedtrends"=mbic_glm(eventmodelunrestrict),
                                  "1 year anticipation"=mbic_glm(eventmodelant4),
                                  "3 quarters anticipation"=mbic_glm(eventmodelant3),
                                  "2 quarters anticipation"=mbic_glm(eventmodelant2),
@@ -573,9 +666,9 @@ gt(resultsno2mbic)
 gt(resultsno2tic)
 ```
 
-The approximate Schwarz posterior weights predominantly favor the anticipation models with 2 or 1 quarter of anticipation being about 0.98/0.02=49 times more likely than the clean DID model. At the same time the higher order anticipation and the full event study models have relatively litlle support and are weighted near zero. Under the assumption that the true model in the set has a well specified mean we have that the 3-6 months of anticipation was the most likely driver and composition effect response to the ULEZ announcement, there's low to no sample evidence support for non parallel trends though.
+The approximate Schwarz posterior weights predominantly favor the anticipation models with 2 or 1 quarter of anticipation being about (0.528+0.4717)/0.0003=3332 times more likely than the clean DID model. At the same time the higher order anticipation and the full event study models have relatively litlle support and are weighted near zero. Under the assumption that the true model in the set has a well specified mean we have that the 3-6 months of anticipation was the most likely driver and composition effect response to the ULEZ announcement, there's low to no sample evidence support for non parallel trends though.Still whether anticipation was 2 or 3 quarters remains fundamentally uncertain with the models having not enough posterior sample evidence to distiguish between 1 and 2 quarters with the approximate bayes factor(posterior evidence ration) of 1:1.1 in favour of the 2 quarter model.
 
-As a robustness check we also drop the true model assumption and consider Takeuchi results as well. We are know looking for the lowest information loss/best predictions on unseen data(relative KL divergence) model. This is justified since if seasonal interactions or non linearity are ommited the model for the mean is biased and the true model isn't in the candidate set, TIC is thus more lenient towards including predictors. The weights are almost evenly split between the clean DiD, 1 and 2 quarter models - they have very similar probabilities of being the best approximating model in the set. Collectively the anticipation models are 1.8 times more likely to be the best approximation than the clean DiD. Individually however the relative information loss between the 3 is indistinguishible. If we don't have the approximately true DGP assumption to allow us to use MBIC, and look for best predicitive approximation instead we have modest evidence for some form of anticipation effect but can't really decisively choose any particular specification.Still the higher order anticipations and unrestricted model have very low in sample support.
+As a robustness check we also drop the true model assumption and consider Takeuchi results as well. We are know looking for the lowest information loss/best predictions on unseen data(relative KL divergence) model. This is justified since if seasonal interactions or non linearity are ommited the model for the mean is biased and the true model isn't in the candidate set, TIC is thus more lenient towards including predictors. The weights heavily favour the 2 quarter model with it being 5.5 times more likely to be the best approximation in the set than the 1 quarter model. If we don't have the approximately true DGP assumption to allow us to use MBIC, and look for best predicitive approximation instead we have weakly strong evidence for 2 periods of anticipation effect as the best approximation, still this fully hinges on the assumtion that the true model is not in the set and we are minimising prediction error. If the approximately true model is included however(if we take our candidate set as exhaustive) than we can't distinguish between the 1 and 2 quarter anticipation model.
 
 **PM10**
 
@@ -607,23 +700,25 @@ no2_att <- data.frame(
     "1 quarter anticipation",
     "no pre treatment effects"
   ),
-  ATT = c(-11.000, -10.261, -10.425, -10.532, -10.272, -9.768)
+  ATT = effect_summary_tableno2$DiD_Estimate,
+  VAR = effect_summary_tableno2$Robust_Var
 )
 
 no2_att %>%
   gt() %>%
-  tab_header("NO2: Post‑policy ATT by Model") %>%
+  tab_header("NO2: Post‑policy ATT by Model with HC3 variences") %>%
   fmt_number(columns = ATT, decimals = 3)
 pm10_att <- data.frame(
   Model = c("unrestricted", "1 year anticipation", "3 quarters anticipation",
             "2 quarters anticipation", "1 quarter anticipation", "no pre treatment effects"),
-  ATT   = c(-1.2258, -1.6137, -1.4580, -1.2812, -1.2953, -1.0995)
+  ATT   = effect_summary_tablepm10$DiD_Estimate,
+  VAR = effect_summary_tablepm10$Robust_Var
 )
 
 pm10_att %>%
   gt() %>%
-  tab_header("PM₁₀: Post‑policy ATT by Model") %>%
-  fmt_number(columns = ATT, decimals = 4)
+  tab_header("PM₁₀: Post‑policy ATT by Model with HC3 variences") %>%
+  fmt_number(decimals = 4)
 ```
 
 When there are anticipation effects but no cumulative long term drift the DiD coefficient has the correct direction but has incorrect effect size as the counter factual is calculated at a lower baseline than when the policy actually started taking effect. As a nice side effect of having full probability distributions over all our theories we can try and adjust for attenuation bias by calculating a weighted average of all model estimates given their probabilities note that since the probability weight on the unrestricted model is zero it has no effect on the adjustment.
@@ -635,4 +730,28 @@ PM10BAME=sum(resultspm10mbic$`P(M|Data)`*pm10_att$ATT),
 PM10BAMEtic=sum(resultspm10tic$Weight*pm10_att$ATT)))
 ```
 
-Its notable that the weighted coefficients for NO2 and Pm10 are larger than the anticipation affected ones by about 0.574(5.9 percent loss to attenuation) and 0.053(4.61 percent loss to attenuation) respectively, this gap represents the expected attenuation bias for our model set(note that getting SE for BMAs is notoriously difficult so these are just descriptive point estimates).Relaxing the assumption that the true DGP is in candidate set and using takeuchi weights increases the expected bias to 5.3 and 19 percent of the original estimates respectively. The original choice to stick with original policy timings therefore was more or less robust to anticipation bias for both pollutants for a given sample as even in the most pessimistic outcome the uncertainty doesn't seem to overturn the original specification.
+Its notable that the weighted coefficients for NO2 and Pm10 are larger than the anticipation affected ones by about 0.574(5.9 percent loss to attenuation) and 0.053(4.61 percent loss to attenuation) respectively, this gap represents the expected attenuation bias for our model set(note that getting SE for BMAs is notoriously difficult so these are just descriptive point estimates,though we make an effort below).Estimated Standard errors incorporating both within and between model noise however are larger than the BMA adjustments, implying that the changes are indistiguishible from noise.Relaxing the assumption that the true DGP is in candidate set and using takeuchi weights increases the expected bias. The original choice to stick with original policy timings therefore was more or less robust to anticipation bias for both pollutants for a given sample size Given BMA noise as even in the most pessimistic outcome the uncertainty doesn't seem to overturn the original specification.
+
+```{r echo=TRUE}
+# 1. Compute the Point Estimates first
+no2_bma_m  <- sum(resultsno2mbic$`P(M|Data)` * no2_att$ATT);
+no2_bma_t  <- sum(resultsno2tic$Weight * no2_att$ATT);
+pm10_bma_m <- sum(resultspm10mbic$`P(M|Data)` * pm10_att$ATT);
+pm10_bma_t <- sum(resultspm10tic$Weight * pm10_att$ATT);
+
+# 2. Compute the Standard Errors using the Law of Total Variance
+no2_se_m  <- sqrt(sum(resultsno2mbic$`P(M|Data)` * (no2_att$VAR + (no2_att$ATT - no2_bma_m)^2)));
+no2_se_t  <- sqrt(sum(resultsno2tic$Weight * (no2_att$VAR + (no2_att$ATT - no2_bma_t)^2))); 
+pm10_se_m <- sqrt(sum(resultspm10mbic$`P(M|Data)` * (pm10_att$VAR + (pm10_att$ATT - pm10_bma_m)^2)));
+pm10_se_t <- sqrt(sum(resultspm10tic$Weight * (pm10_att$VAR + (pm10_att$ATT - pm10_bma_t)^2)));
+
+# 3. Present cleanly side-by-side using gt
+gt(data.frame(
+  Metric      = c("BMA Estimate", "Standard Error"),
+  NO2_MBIC    = c(no2_bma_m, no2_se_m),
+  NO2_TIC     = c(no2_bma_t, no2_se_t),
+  PM10_MBIC   = c(pm10_bma_m, pm10_se_m),
+  PM10_TIC    = c(pm10_bma_t, pm10_se_t)
+))
+```
+
