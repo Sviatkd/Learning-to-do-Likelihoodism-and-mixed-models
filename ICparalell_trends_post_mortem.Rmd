@@ -2,9 +2,9 @@
 ---
 ---
 
-\-Sviatoslav Cherniak
+-Sviatoslav Cherniak
 
-title: "An information theoretic workthrough of the Parallel trends assumption"
+title: "An information theoretic quasi likelihood work through of the Parallel trends assumption "
 
 output: html_document
 
@@ -147,7 +147,7 @@ The DiD setup in the main ULEZ paper relies explicitly on the parallel trends as
 
 The original paper uses HC3 sandwich variance covarience estimators for specification testing, in order to maintain consistency and same evidence weights we are going to use them as our robust variance estimators as well(note that this is a deviation from a pure likelihood approach in TIC and MBIC). We'd incorporate these adjustments via generalized AIC and BIC alternatives. Takeuchi and his criterion is essentially a generalisation of AIC under s model misspecification, instead of asssuming a well specified model under which the bias adjustment to relative likelihood simplifies to 2\*number of free parameters.In line with Takeuchis approach we allow the bread and meat of vcov matrix to be unequal and thus use the full trace penalty tr(inv(H)%*%J) where J is the empirical score matrix. Recall that the HC3 vcov estimator is essentially inv(H)%%Omega(HC3)%%inv(H) or B%%M%*%B. Than we can derive a Takeuchi style penalty by multiplying the left side with the inverse of the inverse of the Hessian leading to
 
-TIChc3=-2\*logLik(M)+ 2\*tr(*Omega(HC3)%%inv(H))(by commutivity of the trace)*
+$$TIC_{HC3} = -2 \log L(M) + 2 \text{Tr}(\Omega_{HC3} H^{-1})$$*(by properties of the trace)*
 
 ```{r}
 tic_glm <- function(model) {
@@ -175,7 +175,7 @@ tic_glm <- function(model) {
 
 Where the trace penalty are effective degrees of freedom of the model. Misspecified Quasi BIC can be derived analogously by replacing the 2 with log(n) to maintain consistency at larger sample sizes:
 
-MBIChc3=-2\*logLik(M)+ log(n)\*tr(*Omega(HC3)%%inv(H))*
+$$MBIC_{HC3} = -2 \log L(M) + \log(n) \text{Tr}(\Omega_{HC3} H^{-1})$$
 
 ```{r}
 mbic_glm <- function(model) {
@@ -209,11 +209,11 @@ When leverage of residuals is low and evenly distributed corresponding to low mi
 
 Takeuchis criterion as the generalisation of AIC is the bias adjusted metric for relative information loss between a set of models that occurs when we try and approximate a complex Data Generating process with simplified models estimated from sample models via maximum likelihood. Given that maximised log likelihoods of a set of models is a measure of how probable(or close) data is given a model and penalty term corrects the upward bias of sample estimators its possible to use differences in TICs between two models to estimate Relative Likelihoods that one model is the better approximation to DGP in the following way
 
-RelativeLikelihood(M2 to Mmin(TIC))= exp(-0.5(changetic(M2 to Mmin(TIC))))
+$$\text{RelativeLikelihood}(M_2, M_{\min}) = \exp\left(-0.5 \left(TIC_{M_2} - TIC_{\min}\right)\right)$$
 
 Where the change is calculated with respect to the model with the lowest TIC. After we calculate Relative likelihoods for all models in the candidate set we can calculate the Takeuchi/Akaike weight which corresponds to the probability that a given model in the candidate set minimizes information loss/is the best approximation to DGP, and is a ratio of Relative likelihood of Model to lowest TIC model to all other Relative Likelihoods:
 
-TakeuchiAkaikeWeight(Mi)= RLi(Mi)/sum over all M (RLi).
+$$w_i = \frac{\text{RL}(M_i)}{\sum_{j=1}^{K} \text{RL}(M_j)}$$
 
 This approach allows one to obtain a full probability distribution of evidence for being the best predictive/approximating model over the entire set of candidate models. The approach is essentially a Relative(to dimension given by parameters) Likelihood ratio approach to inference. Notably the model selected is the best predictive(not necessarily correct) model as we explicitly assume that the true model is too complex to be in the candidate set.This means that with large sample sizes the criterion is more than happy to pick more complex models as long as the signal to noise trade off is favorable and is thus not an asymptotically consistent selection method when the true model is suspected to be in the candidate set. Note also that we are using a sandwich based approximation instead of the true TIC to be in line with the original paper
 
@@ -221,23 +221,23 @@ This approach allows one to obtain a full probability distribution of evidence f
 
 The log(n) adjustment can be added to the TIC to put it in line with the work of Schwarz on approximate Bayesian model selection.
 
-MBIChc3=-2\*logLik(M)+ log(n)\*tr(*Omega(HC3)%%inv(H))*
+$$MBIC_{HC3} = -2 \log L(M) + \log(n) \text{Tr}(\Omega_{HC3} H^{-1})$$
 
 Under the assumption that the true model is in the candidate state and that all models are equally likely prior to observing any data(unit prior), the relative likelihood derived from MBIC is a large sample approximation to the Bayes Factor of two models:
 
-RelativeLikelihood(M2 to Mmin(MBIC))= exp(-0.5(changembic(M2 to Mmin(MBIC))))=BF2toMminmbic
+$$\text{RelativeLikelihood}(M_2, M_{\min}) = \exp\left(-0.5 \left(MBIC_{M_2} - MBIC_{\min}\right)\right) = BF_{2,\min}$$
 
 Given that the Bayes factors is a ratio of posterior probabilities after observing data for same priors, its possible to calculate the posterior probability of a given model given data also known as a Schwarz Weight as:
 
-SchwarzWeight=P(Mi\|Data)=BFmi/sum over all M(BFmi/mlowestbic).
+$$P(M_i \mid \text{Data}) = \frac{BF_i}{\sum_{j=1}^{K} BF_j}$$
 
 Therefore under the assumption that the true model is in the candidate set and unit priors one can reasonably use Schwarzs approximation with MBIC to make probability statements about plausibility of different models given data, its the most direct substitute for NHST for our purposes. Still these are quasi-posteriors and should be interpreted as plausibility weights at best
 
-Multimodel approach to evaluating the parallel trends assumption
+**Multimodel approach to evaluating the parallel trends assumption**
 
 What we want to find out is the degree to which the assumption is violated. Given that we use quarterly means this implies that we could have no anticipation, an anticipation of 1-3 quarters, an anticipation of a year, or multi year anticipation which logically implies that the trends diverged long before policy.
 
-For multimodel inference this means restricting the policy effect coefficients to just post policy period, and then estimating models with extra anticipation coefficients for each of 1-4 models, and using the full unrestricted event study model as a stand in for fully non parallel trends. Given that we have a model for each of the possible combinations of the trend regimes it is plausible that the true model is in our candidate set, Schwarz weights are therefore appropriate. Given that we are assuming that each of the regimes is equally likely without observing the data, we are essentially letting the data speak for itself about the relative posterior evidence weight and model uncertainty on a continous scale. This is the key advantage as we can avoid the Lindley paradox of "accepting the null" of no significant pre trend violations and actually see the embedded uncertainty of our in sample evidence.
+For multimodel inference this means restricting the policy effect coefficients to just post policy period, and then estimating models with extra anticipation coefficients for each of 1-4 models, and using the full unrestricted event study model as a stand in for fully non parallel trends. Given that we have a model for each of the possible combinations of the trend regimes it is plausible that the true model is in our candidate set, Schwarz weights are therefore appropriate. Given that we are assuming that each of the regimes is equally likely without observing the data, we are essentially letting the data speak for itself about the relative posterior evidence weight and model uncertainty on a continuous scale. This is the key advantage as we can avoid the Lindley paradox of "accepting the null" of no significant pre trend violations and actually see the embedded uncertainty of our in sample evidence.
 
 Finally, the value of this exercise lies not just in being able to transparently evaluate evidence for effect identification, but also in doing a probabilistic post mortem of sorts on the exact direction and size of bias in our effect estimates for both PM10 and NO2 given that the original paper used the models assuming clean parallel trends. Furthermore, we can also explore how driver behavior adjusted dynamically long before policy implementation.
 
@@ -245,7 +245,7 @@ Finally, the value of this exercise lies not just in being able to transparently
 
 We estimate all the models in the candidate set and calculate their TIC scores:
 
-```{r echo=TRUE}
+```{r include=FALSE}
 no2quarterly <- FullDataset %>%
   mutate(yr_qtr = quarter(date, with_year = TRUE)) %>% 
   group_by(yr_qtr, Station) %>%
@@ -666,9 +666,9 @@ gt(resultsno2mbic)
 gt(resultsno2tic)
 ```
 
-The approximate Schwarz posterior weights predominantly favor the anticipation models with 2 or 1 quarter of anticipation being about (0.528+0.4717)/0.0003=3332 times more likely than the clean DID model. At the same time the higher order anticipation and the full event study models have relatively litlle support and are weighted near zero. Under the assumption that the true model in the set has a well specified mean we have that the 3-6 months of anticipation was the most likely driver and composition effect response to the ULEZ announcement, there's low to no sample evidence support for non parallel trends though.Still whether anticipation was 2 or 3 quarters remains fundamentally uncertain with the models having not enough posterior sample evidence to distiguish between 1 and 2 quarters with the approximate bayes factor(posterior evidence ration) of 1:1.1 in favour of the 2 quarter model.
+The approximate Schwarz posterior weights predominantly favor the anticipation models with 2 or 1 quarter of anticipation being about (0.528+0.4717)/0.0003=3332 times more likely than the clean DID model. At the same time the higher order anticipation and the full event study models have relatively little support and are weighted near zero. Under the assumption that the true model in the set has a well specified mean we have that the 3-6 months of anticipation was the most likely driver and composition effect response to the ULEZ announcement, there's low to no sample evidence support for non parallel trends though.Still whether anticipation was 2 or 3 quarters remains fundamentally uncertain with the models having not enough posterior sample evidence to distinguish between 1 and 2 quarters with the approximate Bayes factor(posterior evidence ratio) of 1:1.1 in favor of the 2 quarter model.
 
-As a robustness check we also drop the true model assumption and consider Takeuchi results as well. We are know looking for the lowest information loss/best predictions on unseen data(relative KL divergence) model. This is justified since if seasonal interactions or non linearity are ommited the model for the mean is biased and the true model isn't in the candidate set, TIC is thus more lenient towards including predictors. The weights heavily favour the 2 quarter model with it being 5.5 times more likely to be the best approximation in the set than the 1 quarter model. If we don't have the approximately true DGP assumption to allow us to use MBIC, and look for best predicitive approximation instead we have weakly strong evidence for 2 periods of anticipation effect as the best approximation, still this fully hinges on the assumtion that the true model is not in the set and we are minimising prediction error. If the approximately true model is included however(if we take our candidate set as exhaustive) than we can't distinguish between the 1 and 2 quarter anticipation model.
+As a robustness check we also drop the true model assumption and consider Takeuchi results as well. We are know looking for the lowest information loss/best predictions on unseen data(relative KL divergence) model. This is justified since if seasonal interactions or non linearity are ommitted the model for the mean is biased and the true model isn't in the candidate set, TIC is thus more lenient towards including predictors. The weights heavily favor the 2 quarter model with it being 5.5 times more likely to be the best approximation in the set than the 1 quarter model. If we don't have the approximately true DGP assumption to allow us to use MBIC, and look for best predictive approximation instead we have weakly strong evidence for 2 periods of anticipation effect as the best approximation, still this fully hinges on the assumption that the true model is not in the set and we are minimizing prediction error. If the approximately true model is included however(if we take our candidate set as exhaustive) than we can't distinguish between the 1 and 2 quarter anticipation model.
 
 **PM10**
 
@@ -677,15 +677,15 @@ gt(resultspm10mbic)
 gt(resultspm10tic)
 ```
 
-The approximate posterior weights are spread out in such a way that the clean DiD model is 2.68 times more likely than the anticipation models. The noise in PM10 data is likely such that the models cannot pick up any meaningful divergence between the treatment and control under the approximately true DGP assumption. This alligns with the conclusions of the original paper - the volume effect which would have affected PM10 more through the decrease in the total number of cars on the road was relatively modest, with people acqurining cleaner vehicles but largely leaving their driving habits unchanged.
+The approximate posterior weights are spread out in such a way that the clean DiD model is 2.68 times more likely than the anticipation models. The noise in PM10 data is likely such that the models cannot pick up any meaningful divergence between the treatment and control under the approximately true DGP assumption. This aligns with the conclusions of the original paper - the volume effect which would have affected PM10 more through the decrease in the total number of cars on the road was relatively modest, with people acquiring cleaner vehicles but largely leaving their driving habits unchanged.
 
-Dropping the true DGP assumption and lookign for the best approximating model instead sheds light on uncertainty in PM10 time series. Although some form of anticipation is 5 times more likely than clean DiD to be the better approximation,the evidence doesn't favor any individual model as the best approximating one. Like with NO2 and even more so we arguably don't have enough evidence to pinpoint any particular anticipation pattern or lack thereof given the sample and its noise.
+Dropping the true DGP assumption and looking for the best approximating model instead sheds light on uncertainty in PM10 time series. Although some form of anticipation is 5 times more likely than clean DiD to be the better approximation,the evidence doesn't favor any individual model as the best approximating one. Like with NO2 and even more so we arguably don't have enough evidence to pinpoint any particular anticipation pattern or lack thereof given the sample and its noise.
 
 **Takeuchi and Akaike vs Schwarz and Bayes and GIC vs GBIC**
 
 Ultimately whether one should choose the relative information loss or posterior probability interpretation of the analysis outcome boils down to whether one thinks the mean is well specified(additive and linear) or misspespecified (which is most likely). I tend to err on the side of caution and use both and interpret both jointly even if they come from two competing philosophies. Still the relative evidence approach does help hint towards most plausible anticipation patterns in NO2 which are economically meaningful if DGP assumption holds and at least provides us with the decent enough representation of inherent in sample uncertainty if it doesn't.
 
-**Bonus:Bayesian Model Averages of the Anticipation Adjusted Effects to put a number on attentuation bias**
+**Bonus:Bayesian Model Averages of the Anticipation Adjusted Effects to put a number on attenuation bias**
 
 ```{r echo=FALSE}
 library(gt)
@@ -730,7 +730,7 @@ PM10BAME=sum(resultspm10mbic$`P(M|Data)`*pm10_att$ATT),
 PM10BAMEtic=sum(resultspm10tic$Weight*pm10_att$ATT)))
 ```
 
-Its notable that the weighted coefficients for NO2 and Pm10 are larger than the anticipation affected ones by about 0.574(5.9 percent loss to attenuation) and 0.053(4.61 percent loss to attenuation) respectively, this gap represents the expected attenuation bias for our model set(note that getting SE for BMAs is notoriously difficult so these are just descriptive point estimates,though we make an effort below).Estimated Standard errors incorporating both within and between model noise however are larger than the BMA adjustments, implying that the changes are indistiguishible from noise.Relaxing the assumption that the true DGP is in candidate set and using takeuchi weights increases the expected bias. The original choice to stick with original policy timings therefore was more or less robust to anticipation bias for both pollutants for a given sample size Given BMA noise as even in the most pessimistic outcome the uncertainty doesn't seem to overturn the original specification.
+Its notable that the weighted coefficients for NO2 and Pm10 are larger than the anticipation affected ones by about 0.574(5.9 percent loss to attenuation) and 0.053(4.61 percent loss to attenuation) respectively, this gap represents the expected attenuation bias for our model set(note that getting SE for BMAs is notoriously difficult so these are just descriptive point estimates,though we make an effort below).Estimated Standard errors incorporating both within and between model noise however are larger than the BMA adjustments, implying that the changes are indistinguishable from noise.Relaxing the assumption that the true DGP is in candidate set and using takeuchi weights increases the expected bias. The original choice to stick with original policy timings therefore was more or less robust to anticipation bias for both pollutants for a given sample size Given BMA noise as even in the most pessimistic outcome the uncertainty doesn't seem to overturn the original specification.
 
 ```{r echo=TRUE}
 # 1. Compute the Point Estimates first
@@ -754,4 +754,3 @@ gt(data.frame(
   PM10_TIC    = c(pm10_bma_t, pm10_se_t)
 ))
 ```
-
