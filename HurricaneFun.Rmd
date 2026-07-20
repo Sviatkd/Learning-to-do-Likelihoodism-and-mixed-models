@@ -1,0 +1,62 @@
+Hurricane Panel fun
+
+```{r}
+library(readxl)
+Hurricanes <- read_excel("~/Hurricanes.xlsx", 
+     col_types = c("numeric", "numeric", "numeric", 
+         "numeric", "numeric", "numeric", 
+         "numeric", "skip", "skip"))
+library(sandwich)
+library(tidyverse)
+library(lme4)
+library(stargazer)
+library(modelsummary)
+library(mgcv)
+library(clubSandwich)
+panel <- pivot_longer(Hurricanes,cols = H0:H5)
+```
+
+Plot of data:
+
+```{r echo=FALSE}
+ggplot(panel,aes(x=Period,y=value,colour = factor(name)))+geom_line() +geom_smooth(method = "loess", aes(group = 1), colour = "darkblue", size = 1.2, se = FALSE)
+```
+
+Naive pooled ols model and its residuals,we might be missing a higher order polynomial note the residual hurricane specific heterogeneity:
+
+```{r echo=FALSE}
+pooledols <- lm(value~poly(Period,degree = 2,raw = FALSE),data = panel)
+ggplot(panel,aes(x=Period,y=residuals(pooledols),colour = factor(name)))+geom_line() +geom_smooth(method = "loess", aes(group = 1), colour = "darkblue", size = 1.2, se = FALSE)
+car::crPlots(pooledols)
+```
+
+Lets estimate a higher order polynomial model and do a model comparison with AIC to find the better approximating model to DGP of the two
+
+```{r echo=FALSE}
+pooledols3 <- lm(value~poly(Period,degree = 3,raw = FALSE),data = panel)
+AIC(pooledols3,pooledols)
+```
+
+A quick back of the envelope calculation gives us that the cubic model is 214 times more likely to be the better approximating model, lets check residuals again:
+
+```{r echo=FALSE}
+ggplot(panel,aes(x=Period,y=residuals(pooledols3),colour = factor(name)))+geom_line() +geom_smooth(method = "loess", aes(group = 1), colour = "darkblue", size = 1.2, se = FALSE)
+```
+
+Its still clear that the residuals are conditionally dependent at the hurricane model even if the global cubic curve successfully stabilized the overall trend of a hurricane life cycle, assume that each hurricanes heterogeneous deviation is more or less constant overtime, we can thus explicitly model it by including the intercept for each hurricane to shift our global curve around as needed this makes our model a within estimator or a fixed effect model, lets also check AIC again:
+
+```{r echo=FALSE}
+femodel <- lm(value~poly(Period,degree = 3,raw = FALSE)+factor(name),data = panel)
+ggplot(panel,aes(x=Period,y=residuals(femodel),colour = factor(name)))+geom_line() +geom_smooth(method = "loess", aes(group = 1), colour = "darkblue", size = 1.2, se = FALSE)
+AIC(femodel,pooledols3)
+```
+
+The deviations have now all been pulled towards zero with the variance now stabilized, they still do seem to be conditionally dependent on their group though through time varying heterogeneity, one way to account for this is via an interaction.
+
+```{r echo=FALSE}
+femodelinter <- lm(value~factor(name)*poly(Period,degree = 3,raw = FALSE),data = panel)
+ggplot(panel,aes(x=Period,y=residuals(femodelinter),colour = factor(name)))+geom_line() +geom_smooth(method = "loess", aes(group = 1), colour = "darkblue", size = 1.2, se = FALSE)
+AIC(femodel,femodelinter,pooledols3)
+```
+
+Clearly the cubic interaction effect model is the best approximating model of the set so far with most heterogeneity in residuals accounted for, however there is a problem.Because we effectively are fitting a unique cubic trajectory for each of the hurricanes in the data set we are effectively perfectly predicting a path of each of those specific hurricanes without learning anything about hurricane paths in our sample in general. To put it formally our model effectively over fits the within variation in each hurricane without telling us anything about between variation. This model is thus helpless in predicting new hurricanes for which it doesn't have pre estimated coefficients, nor can it estimate any fixed non varying characteristics for any of the storms. Random effects and random coefficients come for the rescue in this case, they rely on partial as opposed to full(as in the pooling model where only the global curve is estimated) or no(like with full fixed effects) pooling. Random effects are treated as draws from a normal population of effects with the mean of zero and varience determined by between differences between hurricanes. If the within noise of the particular hurricane is too high or its an outlier it gets penalized based on the square of its noise and pulled towards zero or the global fixed effect during optimization. This is effectively ridge regularization on the interaction model where the coefficients get penalized on the square of their noise whilst the likelihood is maximized, reducing over fitting and preserving between variation that we are interested in.
